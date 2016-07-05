@@ -36,6 +36,8 @@ import org.apache.hadoop.mapreduce.lib.db.DBWritable;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputCommitter;
 import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
 import org.apache.hadoop.util.StringUtils;
+import org.schedoscope.export.jdbc.exception.RetryException;
+import org.schedoscope.export.jdbc.exception.UnrecoverableException;
 import org.schedoscope.export.jdbc.outputschema.Schema;
 import org.schedoscope.export.jdbc.outputschema.SchemaFactory;
 import org.schedoscope.export.utils.JdbcQueryUtils;
@@ -51,7 +53,7 @@ import org.schedoscope.export.utils.JdbcQueryUtils;
  */
 @InterfaceAudience.Public
 @InterfaceStability.Stable
-public class JdbcOutputFormat<K extends DBWritable, V> extends
+public class JdbcOutputFormat<K, V extends DBWritable> extends
 		OutputFormat<K, V> {
 
 	private static final Log LOG = LogFactory.getLog(JdbcOutputFormat.class);
@@ -81,6 +83,7 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 		private Connection connection;
 		private PreparedStatement statement;
 		private int rowsInBatch = 0;
+		private int rowsTotal = 0;
 		private int commitSize = 25000;
 
 		public JdbcRecordWriter() throws SQLException {
@@ -122,8 +125,15 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 		public void close(TaskAttemptContext context) throws IOException {
 
 			try {
-				statement.executeBatch();
-				connection.commit();
+
+				if (rowsInBatch > 0) {
+					statement.executeBatch();
+				}
+
+				if (rowsTotal > 0) {
+					connection.commit();
+				}
+
 			} catch (SQLException e) {
 				try {
 					connection.rollback();
@@ -141,13 +151,14 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 		public void write(K key, V value) throws IOException {
 
 			try {
-				key.write(statement);
+				value.write(statement);
 				statement.addBatch();
 				if (rowsInBatch == commitSize) {
 					statement.executeBatch();
 					rowsInBatch = 0;
 				} else {
 					rowsInBatch++;
+					rowsTotal++;
 				}
 			} catch (SQLException e) {
 				e.printStackTrace();
@@ -162,7 +173,7 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 		Schema outputSchema = SchemaFactory.getSchema(context
 				.getConfiguration());
 
-		String tmpOutputTable = TMPDB + outputSchema.getTable() + "_"
+		String tmpOutputTable = getTablePrefix(outputSchema) + outputSchema.getTable() + "_"
 				+ context.getTaskAttemptID().getTaskID().getId();
 		String createTableQuery = outputSchema.getCreateTableQuery();
 
@@ -186,6 +197,15 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 
 		} catch (Exception ex) {
 			throw new IOException(ex.getMessage());
+		}
+	}
+
+	private static String getTablePrefix(Schema outputSchema) {
+		if (outputSchema.getFilter() != null) {
+			String filter = outputSchema.getFilter().replace("=", "");
+			return TMPDB + filter + "_";
+		} else {
+			return TMPDB;
 		}
 	}
 
@@ -238,14 +258,17 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 	 *
 	 * @param conf
 	 *            The Hadoop configuration object.
-	 * @throws IOException
-	 *             Is thrown if an error occurs.
+	 * @throws RetryException
+	 *             Is thrown if a SQL error occurs.
+	 * @throws UnrecoverableException
+	 *             Is thrown if JDBC driver issue occurs.
 	 */
-	public static void finalizeOutput(Configuration conf) throws IOException {
+	public static void finalizeOutput(Configuration conf)
+			throws RetryException, UnrecoverableException {
 
 		Schema outputSchema = SchemaFactory.getSchema(conf);
 		String outputTable = outputSchema.getTable();
-		String tmpOutputTable = TMPDB + outputSchema.getTable();
+		String tmpOutputTable = getTablePrefix(outputSchema) + outputSchema.getTable();
 		String createTableStatement = outputSchema.getCreateTableQuery();
 		String inputFilter = outputSchema.getFilter();
 		int outputNumberOfPartitions = outputSchema.getNumberOfPartitions();
@@ -263,13 +286,17 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 			}
 
 			JdbcQueryUtils.createTable(createTableStatement, connection);
-			JdbcQueryUtils.mergeOutput(outputTable, TMPDB,
+			JdbcQueryUtils.mergeOutput(outputTable, getTablePrefix(outputSchema),
 					outputNumberOfPartitions, connection);
 			JdbcQueryUtils.dropTemporaryOutputTables(tmpOutputTable,
 					outputNumberOfPartitions, connection);
 
-		} catch (Exception ex) {
-			throw new IOException(ex.getMessage());
+		} catch (SQLException ex1) {
+			LOG.error(ex1.getMessage());
+			throw new RetryException(ex1.getMessage());
+		} catch (ClassNotFoundException ex2) {
+			LOG.error(ex2.getMessage());
+			throw new UnrecoverableException(ex2.getMessage());
 		} finally {
 			DbUtils.closeQuietly(connection);
 		}
@@ -280,13 +307,16 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 	 *
 	 * @param conf
 	 *            The Hadoop configuration object.
-	 * @throws IOException
-	 *             Is thrown if an error occurs.
+	 * @throws RetryException
+	 *             Is thrown if a SQL error occurs.
+	 * @throws UnrecoverableException
+	 *             Is thrown if JDBC driver issue occurs.
 	 */
-	public static void rollback(Configuration conf) throws IOException {
+	public static void rollback(Configuration conf) throws RetryException,
+			UnrecoverableException {
 
 		Schema outputSchema = SchemaFactory.getSchema(conf);
-		String tmpOutputTable = TMPDB + outputSchema.getTable();
+		String tmpOutputTable = getTablePrefix(outputSchema) + outputSchema.getTable();
 		int outputNumberOfPartitions = outputSchema.getNumberOfPartitions();
 
 		Connection connection = null;
@@ -296,8 +326,12 @@ public class JdbcOutputFormat<K extends DBWritable, V> extends
 			JdbcQueryUtils.dropTemporaryOutputTables(tmpOutputTable,
 					outputNumberOfPartitions, connection);
 
-		} catch (Exception ex) {
-			throw new IOException(ex.getMessage());
+		} catch (SQLException ex1) {
+			LOG.error(ex1.getMessage());
+			throw new RetryException(ex1.getMessage());
+		} catch (ClassNotFoundException ex2) {
+			LOG.error(ex2.getMessage());
+			throw new UnrecoverableException(ex2.getMessage());
 		} finally {
 			DbUtils.closeQuietly(connection);
 		}

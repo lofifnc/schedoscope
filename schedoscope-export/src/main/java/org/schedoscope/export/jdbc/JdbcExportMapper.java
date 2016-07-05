@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.commons.logging.Log;
@@ -32,10 +33,14 @@ import org.apache.hadoop.mapreduce.TaskCounter;
 import org.apache.hive.hcatalog.data.HCatRecord;
 import org.apache.hive.hcatalog.data.schema.HCatSchema;
 import org.apache.hive.hcatalog.mapreduce.HCatInputFormat;
+import org.schedoscope.export.BaseExportJob;
 import org.schedoscope.export.jdbc.outputformat.JdbcOutputWritable;
 import org.schedoscope.export.jdbc.outputschema.Schema;
 import org.schedoscope.export.jdbc.outputschema.SchemaFactory;
-import org.schedoscope.export.utils.CustomHCatRecordSerializer;
+import org.schedoscope.export.utils.HCatRecordJsonSerializer;
+import org.schedoscope.export.utils.HCatUtils;
+
+import com.google.common.collect.ImmutableSet;
 
 /**
  * A mapper that reads data from Hive via HCatalog and emits a JDBC writable..
@@ -56,7 +61,11 @@ public class JdbcExportMapper
 
 	private Configuration conf;
 
-	private CustomHCatRecordSerializer serializer;
+	private HCatRecordJsonSerializer serializer;
+
+	private Set<String> anonFields;
+
+	private String salt;
 
 	@Override
 	protected void setup(Context context) throws IOException,
@@ -67,7 +76,7 @@ public class JdbcExportMapper
 		inputSchema = HCatInputFormat
 				.getTableSchema(context.getConfiguration());
 
-		serializer = new CustomHCatRecordSerializer(conf, inputSchema);
+		serializer = new HCatRecordJsonSerializer(conf, inputSchema);
 
 		Schema outputSchema = SchemaFactory.getSchema(context
 				.getConfiguration());
@@ -78,8 +87,12 @@ public class JdbcExportMapper
 
 		typeMapping = outputSchema.getPreparedStatementTypeMapping();
 
-		LOG.info("Used Filter: " + inputFilter);
+		anonFields = ImmutableSet.copyOf(conf.getStrings(
+				BaseExportJob.EXPORT_ANON_FIELDS, new String[0]));
 
+		salt = conf.get(BaseExportJob.EXPORT_ANON_SALT, "");
+
+		LOG.info("Used Filter: " + inputFilter);
 	}
 
 	@Override
@@ -98,9 +111,11 @@ public class JdbcExportMapper
 			if (obj != null) {
 
 				if (inputSchema.get(f).isComplex()) {
-					fieldValue = serializer.getJsonComplexType(value, f);
+					fieldValue = serializer.getFieldAsJson(value, f);
 				} else {
 					fieldValue = obj.toString();
+					fieldValue = HCatUtils.getHashValueIfInList(f, fieldValue,
+							anonFields, salt);
 				}
 			}
 			record.add(Pair.of(fieldType, fieldValue));

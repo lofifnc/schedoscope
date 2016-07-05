@@ -19,6 +19,7 @@ package org.schedoscope.export.jdbc.outputschema;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Properties;
 
 import org.apache.hadoop.conf.Configuration;
 
@@ -63,7 +64,7 @@ public class MySQLSchema extends AbstractSchema {
 
 	/**
 	 * A class representing the MySQL dialect.
-	 * 
+	 *
 	 * @param conf
 	 *            The Hadoop configuration object.
 	 */
@@ -89,5 +90,14 @@ public class MySQLSchema extends AbstractSchema {
 				+ conf.get(JDBC_MYSQL_STORAGE_ENGINE,
 						JDBC_MYSQL_DEFAULT_STORAGE_ENGINE)
 				+ " DEFAULT CHARSET=utf8";
+	}
+
+	@Override
+	protected Properties getConnectionProperties() {
+		Properties props = super.getConnectionProperties();
+		props.setProperty(JDBC_USE_UNICODE_IDENTIFIER, JDBC_USE_UNICODE);
+		props.setProperty(JDBC_CHARACTER_ENCODING_IDENTIFIER,
+				JDBC_CHARACTER_ENCODING);
+		return props;
 	}
 }

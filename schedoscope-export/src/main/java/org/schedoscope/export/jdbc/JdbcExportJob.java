@@ -16,49 +16,41 @@
 
 package org.schedoscope.export.jdbc;
 
-import java.io.IOException;
-
+import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.conf.Configured;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.io.LongWritable;
-import org.apache.hadoop.io.NullWritable;
 import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Reducer;
 import org.apache.hadoop.util.ClassUtil;
-import org.apache.hadoop.util.Tool;
 import org.apache.hadoop.util.ToolRunner;
 import org.apache.hive.hcatalog.data.schema.HCatSchema;
 import org.apache.hive.hcatalog.mapreduce.HCatInputFormat;
 import org.kohsuke.args4j.CmdLineException;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
+import org.schedoscope.export.BaseExportJob;
+import org.schedoscope.export.jdbc.exception.RetryException;
+import org.schedoscope.export.jdbc.exception.UnrecoverableException;
 import org.schedoscope.export.jdbc.outputformat.JdbcOutputFormat;
 import org.schedoscope.export.jdbc.outputformat.JdbcOutputWritable;
 import org.schedoscope.export.jdbc.outputschema.Schema;
 import org.schedoscope.export.jdbc.outputschema.SchemaFactory;
 import org.schedoscope.export.jdbc.outputschema.SchemaUtils;
 
+import com.google.common.collect.ImmutableSet;
+
 /**
  * The MR driver to run the Hive to database export, uses JDBC under the hood.
  */
-public class JdbcExportJob extends Configured implements Tool {
+public class JdbcExportJob extends BaseExportJob {
 
 	private static final Log LOG = LogFactory.getLog(JdbcExportJob.class);
 
 	private static final String LOCAL_PATH_PREFIX = "file://";
-
-	@Option(name = "-s", usage = "set to true if kerberos is enabled")
-	private boolean isSecured = false;
-
-	@Option(name = "-m", usage = "specify the metastore URI")
-	private String metaStoreUris;
-
-	@Option(name = "-p", usage = "the kerberos principal", depends = { "-s" })
-	private String principal;
 
 	@Option(name = "-j", usage = "the jdbc connection string, jdbc:mysql://remote-host:3306/schema", required = true)
 	private String dbConnectionString;
@@ -69,23 +61,11 @@ public class JdbcExportJob extends Configured implements Tool {
 	@Option(name = "-w", usage = "the database password", depends = { "-u" })
 	private String dbPassword;
 
-	@Option(name = "-d", usage = "input database", required = true)
-	private String inputDatabase;
-
-	@Option(name = "-t", usage = "input table", required = true)
-	private String inputTable;
-
-	@Option(name = "-i", usage = "input filter, e.g. \"month='08' and year='2015'\"")
-	private String inputFilter;
-
 	@Option(name = "-e", usage = "storage engine, either 'InnoDB' or 'MyISAM', works only for MySQL")
 	private String storageEngine;
 
 	@Option(name = "-x", usage = "columns to use for the 'DISTRIBUTE BY' clause, only Exasol")
 	private String distributeBy;
-
-	@Option(name = "-c", usage = "number of reducers, concurrency level")
-	private int numReducer = 2;
 
 	@Option(name = "-k", usage = "batch size")
 	private int commitSize = 10000;
@@ -118,11 +98,13 @@ public class JdbcExportJob extends Configured implements Tool {
 	 *            A flag indicating if job was successful.
 	 * @param conf
 	 *            The Hadoop configuration object.
-	 * @throws IOException
-	 *             Is thrown if an error occurs.
+	 * @throws RetryException
+	 *             Is thrown if a SQL error occurs.
+	 * @throws UnrecoverableException
+	 *             Is thrown if JDBC driver issue occurs.
 	 */
 	public void postCommit(boolean jobSuccessful, Configuration conf)
-			throws IOException {
+			throws RetryException, UnrecoverableException {
 
 		if (jobSuccessful) {
 			JdbcOutputFormat.finalizeOutput(conf);
@@ -161,6 +143,10 @@ public class JdbcExportJob extends Configured implements Tool {
 	 *            Number of reducers / partitions
 	 * @param commitSize
 	 *            The batch size.
+	 * @param anonFields
+	 *            A list of fields to anonymize
+	 * @param exportSalt
+	 *            An optional salt when anonymizing fields
 	 * @return A configured job instance.
 	 * @throws Exception
 	 *             Is thrown if an error occurs.
@@ -169,7 +155,8 @@ public class JdbcExportJob extends Configured implements Tool {
 			String principal, String dbConnectionString, String dbUser,
 			String dbPassword, String inputDatabase, String inputTable,
 			String inputFilter, String storageEngine, String distributeBy,
-			int numReducer, int commitSize) throws Exception {
+			int numReducer, int commitSize, String[] anonFields,
+			String exportSalt) throws Exception {
 
 		this.isSecured = isSecured;
 		this.metaStoreUris = metaStoreUris;
@@ -184,34 +171,24 @@ public class JdbcExportJob extends Configured implements Tool {
 		this.distributeBy = distributeBy;
 		this.numReducer = numReducer;
 		this.commitSize = commitSize;
+		this.anonFields = anonFields.clone();
+		this.exportSalt = exportSalt;
 		return configure();
 	}
 
 	private Job configure() throws Exception {
 
-		Configuration conf = getConf();
-
-		conf.set("hive.metastore.local", "false");
-		conf.set(HiveConf.ConfVars.METASTOREURIS.varname, metaStoreUris);
-
-		if (isSecured) {
-			conf.setBoolean(
-					HiveConf.ConfVars.METASTORE_USE_THRIFT_SASL.varname, true);
-			conf.set(HiveConf.ConfVars.METASTORE_KERBEROS_PRINCIPAL.varname,
-					principal);
-
-			if (System.getenv("HADOOP_TOKEN_FILE_LOCATION") != null) {
-				conf.set("mapreduce.job.credentials.binary",
-						System.getenv("HADOOP_TOKEN_FILE_LOCATION"));
-			}
-		}
+		Configuration conf = getConfiguration();
+		conf = configureHiveMetaStore(conf);
+		conf = configureKerberos(conf);
+		conf = configureAnonFields(conf);
 
 		Job job = Job.getInstance(conf, "JDBCExport: " + inputDatabase + "."
 				+ inputTable);
 
 		job.setJarByClass(JdbcExportJob.class);
 		job.setMapperClass(JdbcExportMapper.class);
-		job.setReducerClass(JdbcExportReducer.class);
+		job.setReducerClass(Reducer.class);
 		job.setNumReduceTasks(numReducer);
 
 		if (inputFilter == null || inputFilter.trim().equals("")) {
@@ -230,7 +207,7 @@ public class JdbcExportJob extends Configured implements Tool {
 		String[] columnNames = SchemaUtils.getColumnNamesFromHcatSchema(
 				hcatInputSchema, outputSchema);
 		String[] columnTypes = SchemaUtils.getColumnTypesFromHcatSchema(
-				hcatInputSchema, outputSchema);
+				hcatInputSchema, outputSchema, ImmutableSet.copyOf(anonFields));
 
 		String outputTable = inputDatabase + "_" + inputTable;
 
@@ -244,8 +221,8 @@ public class JdbcExportJob extends Configured implements Tool {
 
 		job.setMapOutputKeyClass(LongWritable.class);
 		job.setMapOutputValueClass(JdbcOutputWritable.class);
-		job.setOutputKeyClass(JdbcOutputWritable.class);
-		job.setOutputValueClass(NullWritable.class);
+		job.setOutputKeyClass(LongWritable.class);
+		job.setOutputValueClass(JdbcOutputWritable.class);
 
 		Class<?> clazz = Class.forName(outputSchema.getDriverName());
 		String jarFile = ClassUtil.findContainingJar(clazz);
@@ -253,14 +230,14 @@ public class JdbcExportJob extends Configured implements Tool {
 
 		FileSystem fs = FileSystem.get(job.getConfiguration());
 		String tmpDir = job.getConfiguration().get("hadoop.tmp.dir");
-		Path hdfsDir = new Path(tmpDir + "/" + new Path(jarFile).getName());
+		Path hdfsDir = new Path(tmpDir + "/" + new Path(jarFile).getName() + "." + RandomStringUtils.randomNumeric(20));
 
 		if (jarFile != null && jarSelf != null && tmpDir != null
 				&& !jarFile.equals(jarSelf)) {
 			LOG.info("copy " + LOCAL_PATH_PREFIX + jarFile + " to " + tmpDir);
 			fs.copyFromLocalFile(false, true, new Path(LOCAL_PATH_PREFIX
 					+ jarFile), hdfsDir);
-			LOG.info("add " + tmpDir + "/" + jarFile + " to distributed cache");
+			LOG.info("add " + hdfsDir + " to distributed cache");
 			job.addArchiveToClassPath(hdfsDir);
 		}
 

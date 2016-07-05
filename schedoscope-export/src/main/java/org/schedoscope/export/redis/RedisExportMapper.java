@@ -19,6 +19,7 @@ package org.schedoscope.export.redis;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.MapWritable;
@@ -29,12 +30,16 @@ import org.apache.hive.hcatalog.data.HCatRecord;
 import org.apache.hive.hcatalog.data.schema.HCatFieldSchema;
 import org.apache.hive.hcatalog.data.schema.HCatSchema;
 import org.apache.hive.hcatalog.mapreduce.HCatInputFormat;
+import org.schedoscope.export.BaseExportJob;
 import org.schedoscope.export.redis.outputformat.RedisHashWritable;
 import org.schedoscope.export.redis.outputformat.RedisListWritable;
 import org.schedoscope.export.redis.outputformat.RedisOutputFormat;
 import org.schedoscope.export.redis.outputformat.RedisStringWritable;
 import org.schedoscope.export.redis.outputformat.RedisWritable;
+import org.schedoscope.export.utils.HCatUtils;
 import org.schedoscope.export.utils.StatCounter;
+
+import com.google.common.collect.ImmutableSet;
 
 /**
  * A mapper that reads from Hive tables and emits a RedisWritable.
@@ -52,6 +57,10 @@ public class RedisExportMapper extends
 
 	private String keyPrefix;
 
+	private Set<String> anonFields;
+
+	private String salt;
+
 	@Override
 	protected void setup(Context context) throws IOException,
 			InterruptedException {
@@ -60,15 +69,18 @@ public class RedisExportMapper extends
 		conf = context.getConfiguration();
 		schema = HCatInputFormat.getTableSchema(conf);
 
-		RedisOutputFormat.checkKeyType(schema,
+		HCatUtils.checkKeyType(schema,
 				conf.get(RedisOutputFormat.REDIS_EXPORT_KEY_NAME));
-		RedisOutputFormat.checkValueType(schema,
+		HCatUtils.checkValueType(schema,
 				conf.get(RedisOutputFormat.REDIS_EXPORT_VALUE_NAME));
 
 		keyName = conf.get(RedisOutputFormat.REDIS_EXPORT_KEY_NAME);
 		valueName = conf.get(RedisOutputFormat.REDIS_EXPORT_VALUE_NAME);
 
 		keyPrefix = RedisOutputFormat.getExportKeyPrefix(conf);
+		anonFields = ImmutableSet.copyOf(conf.getStrings(
+				BaseExportJob.EXPORT_ANON_FIELDS, new String[0]));
+		salt = conf.get(BaseExportJob.EXPORT_ANON_SALT, "");
 	}
 
 	@SuppressWarnings("unchecked")
@@ -101,8 +113,11 @@ public class RedisExportMapper extends
 			}
 			break;
 		case PRIMITIVE:
-			String valStr = value.getString(valueName, schema);
-			if (valStr != null) {
+			Object obj = value.get(valueName, schema);
+			if (obj != null) {
+				String valStr = obj.toString();
+				valStr = HCatUtils.getHashValueIfInList(valueName, valStr,
+						anonFields, salt);
 				redisValue = new RedisStringWritable(redisKey.toString(),
 						valStr);
 				write = true;

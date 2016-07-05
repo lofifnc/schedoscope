@@ -18,10 +18,10 @@ package org.schedoscope.scheduler.actors
 import akka.actor.SupervisorStrategy.{ Escalate, Restart }
 import akka.actor.{ Actor, ActorRef, OneForOneStrategy, Props, actorRef2Scala }
 import akka.event.{ Logging, LoggingReceive }
-import org.schedoscope.SchedoscopeSettings
+import org.schedoscope.conf.SchedoscopeSettings
 import org.schedoscope.dsl.View
 import org.schedoscope.dsl.transformations.{ FilesystemTransformation, Transformation }
-import org.schedoscope.scheduler.driver.{Driver, RetryableDriverException}
+import org.schedoscope.scheduler.driver.{ Driver, RetryableDriverException }
 import org.schedoscope.scheduler.messages.{ CommandWithSender, DeployCommand, GetQueues, GetTransformations, PollCommand, QueueStatusListResponse, TransformationStatusListResponse, TransformationStatusResponse }
 import scala.collection.JavaConversions.asScalaSet
 import scala.collection.mutable.HashMap

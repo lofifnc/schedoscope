@@ -42,7 +42,7 @@ import redis.clients.jedis.Pipeline;
  * @param <V>
  *            The value class.
  */
-public class RedisOutputFormat<K extends RedisWritable, V> extends
+public class RedisOutputFormat<K, V extends RedisWritable> extends
 		OutputFormat<K, V> {
 
 	public static final String REDIS_EXPORT_SERVER_HOST = "redis.export.server.host";
@@ -51,7 +51,9 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 
 	public static final String REDIS_EXPORT_SERVER_DB = "redis.export.server.db";
 
-	public static final String REDIS_PIPELINE_MODE = "redis.export.pipeline.mode";
+	public static final String REDIS_EXPORT_PIPELINE_MODE = "redis.export.pipeline.mode";
+
+	public static final String REDIS_EXPORT_COMMIT_SIZE = "redis.export.commit.size";
 
 	public static final String REDIS_EXPORT_KEY_NAME = "redis.export.key.name";
 
@@ -60,6 +62,8 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 	public static final String REDIS_EXPORT_VALUE_REPLACE = "redis.export.value.replace";
 
 	public static final String REDIS_EXPORT_KEY_PREFIX = "redis.export.key.prefix";
+
+	public static final String REDIS_EXPORT_AUTH_PASSWORD = "redis.export.auth.password";
 
 	@Override
 	public void checkOutputSpecs(JobContext context) throws IOException {
@@ -87,73 +91,13 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 
 		boolean replace = conf.getBoolean(REDIS_EXPORT_VALUE_REPLACE, true);
 
-		if (conf.getBoolean(REDIS_PIPELINE_MODE, false)) {
+		if (conf.getBoolean(REDIS_EXPORT_PIPELINE_MODE, false)) {
+			int commitSize = conf.getInt(REDIS_EXPORT_COMMIT_SIZE, 10000);
 			Pipeline pipelinedJedis = jedis.pipelined();
-			return new PipelinedRedisRecordWriter(pipelinedJedis, replace);
+			return new PipelinedRedisRecordWriter(pipelinedJedis, replace,
+					commitSize);
 		} else {
 			return new RedisRecordWriter(jedis, replace);
-		}
-	}
-
-	/**
-	 * This function checks if the key type is a primitive type.
-	 *
-	 * @param schema
-	 *            The HCatSchema.
-	 * @param fieldName
-	 *            The name of the field to check.
-	 * @throws IOException
-	 *             Is thrown in case of errors.
-	 */
-	public static void checkKeyType(HCatSchema schema, String fieldName)
-			throws IOException {
-
-		HCatFieldSchema keyType = schema.get(fieldName);
-		HCatFieldSchema.Category category = keyType.getCategory();
-
-		if (category != HCatFieldSchema.Category.PRIMITIVE) {
-			throw new IllegalArgumentException("key must be primitive type");
-		}
-	}
-
-	/**
-	 * This function checks the type category of the value.
-	 *
-	 * @param schema
-	 *            The HCatSchema.
-	 * @param fieldName
-	 *            The name of the field to check.
-	 * @throws IOException
-	 *             Is thrown in case of errors.
-	 */
-	public static void checkValueType(HCatSchema schema, String fieldName)
-			throws IOException {
-
-		HCatFieldSchema valueType = schema.get(fieldName);
-
-		if (valueType.getCategory() == HCatFieldSchema.Category.MAP) {
-			if (valueType.getMapValueSchema().get(0).getCategory() != HCatFieldSchema.Category.PRIMITIVE) {
-				throw new IllegalArgumentException(
-						"map value type must be a primitive type");
-			}
-		}
-
-		if (valueType.getCategory() == HCatFieldSchema.Category.ARRAY) {
-			if (valueType.getArrayElementSchema().get(0).getCategory() != HCatFieldSchema.Category.PRIMITIVE) {
-				throw new IllegalArgumentException(
-						"array element type must be a primitive type");
-			}
-		}
-
-		if (valueType.getCategory() == HCatFieldSchema.Category.STRUCT) {
-			HCatSchema structSchema = valueType.getStructSubSchema();
-			for (HCatFieldSchema f : structSchema.getFields()) {
-				if (f.getCategory() != HCatFieldSchema.Category.PRIMITIVE) {
-					throw new IllegalArgumentException(
-							"struct element type must be a primitive type");
-				}
-			}
-
 		}
 	}
 
@@ -183,6 +127,8 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 	 *            The Redis hostname
 	 * @param redisPort
 	 *            The Redis port
+	 * @param password
+	 *            The password to authenticate.
 	 * @param redisDb
 	 *            The Redis database.
 	 * @param keyName
@@ -195,10 +141,17 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 	 *            A flag indicating if existing data should be replaced
 	 * @param pipeline
 	 *            A flag to use the Redis pipeline mode.
+	 * @param commitSize
+	 *            The number of records to write before syncing.
 	 */
 	public static void setOutput(Configuration conf, String redisHost,
-			int redisPort, int redisDb, String keyName, String keyPrefix,
-			String valueName, boolean replace, boolean pipeline) {
+			int redisPort, String password, int redisDb, String keyName,
+			String keyPrefix, String valueName, boolean replace,
+			boolean pipeline, int commitSize) {
+
+		if (password != null && !password.equals("")) {
+			conf.set(REDIS_EXPORT_AUTH_PASSWORD, password);
+		}
 
 		conf.set(REDIS_EXPORT_SERVER_HOST, redisHost);
 		conf.setInt(REDIS_EXPORT_SERVER_PORT, redisPort);
@@ -207,21 +160,22 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 		conf.set(REDIS_EXPORT_KEY_PREFIX, keyPrefix);
 		conf.set(REDIS_EXPORT_VALUE_NAME, valueName);
 		conf.setBoolean(REDIS_EXPORT_VALUE_REPLACE, replace);
-		conf.setBoolean(REDIS_PIPELINE_MODE, pipeline);
+		conf.setBoolean(REDIS_EXPORT_PIPELINE_MODE, pipeline);
+		conf.setInt(REDIS_EXPORT_COMMIT_SIZE, commitSize);
 	}
 
 	public static void setOutput(Configuration conf, String redisHost,
-			int redisPort, int redisDb, String keyName, String keyPrefix,
-			boolean replace, boolean pipeline) {
+			int redisPort, String password, int redisDb, String keyName,
+			String keyPrefix, boolean replace, boolean pipeline, int commitSize) {
 
-		setOutput(conf, redisHost, redisPort, redisDb, keyName, keyPrefix, "",
-				replace, pipeline);
+		setOutput(conf, redisHost, redisPort, password, redisDb, keyName,
+				keyPrefix, "", replace, pipeline, commitSize);
 	}
 
 	/**
 	 * A function to return the writable depending on the name of the value
 	 * field.
-	 * 
+	 *
 	 * @param schema
 	 *            The Hcatalog schema
 	 * @param fieldName
@@ -251,7 +205,7 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 			RWClazz = RedisHashWritable.class;
 			break;
 		default:
-			break;
+			throw new IllegalArgumentException("invalid type");
 		}
 		return RWClazz;
 	}
@@ -282,7 +236,7 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 		@Override
 		public void write(K key, V value) {
 
-			key.write(jedis, replace);
+			value.write(jedis, replace);
 		}
 
 		@Override
@@ -302,6 +256,10 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 
 		private boolean replace;
 
+		private int commitSize;
+
+		private int written;
+
 		/**
 		 * The constructor to initialize the pipelined writer.
 		 *
@@ -309,17 +267,26 @@ public class RedisOutputFormat<K extends RedisWritable, V> extends
 		 *            The pipelined Redis client.
 		 * @param replace
 		 *            A flag to enable replace mode.
+		 * @param commitSize
+		 *            The number of records between a sync.
 		 */
-		public PipelinedRedisRecordWriter(Pipeline jedis, boolean replace) {
+		public PipelinedRedisRecordWriter(Pipeline jedis, boolean replace,
+				int commitSize) {
 
 			this.jedis = jedis;
 			this.replace = replace;
+			this.commitSize = commitSize;
+			this.written = 0;
 		}
 
 		@Override
 		public void write(K key, V value) {
 
-			key.write(jedis, replace);
+			value.write(jedis, replace);
+			written++;
+			if ((written % commitSize) == 0) {
+				jedis.sync();
+			}
 		}
 
 		@Override

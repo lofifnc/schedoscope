@@ -20,6 +20,7 @@ import static org.junit.Assert.assertNotEquals;
 
 import java.io.File;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
@@ -39,6 +40,7 @@ import org.schedoscope.export.jdbc.outputschema.Schema;
 import org.schedoscope.export.jdbc.outputschema.SchemaFactory;
 import org.schedoscope.export.jdbc.outputschema.SchemaUtils;
 import org.slf4j.bridge.SLF4JBridgeHandler;
+
 import com.inmobi.hive.test.HiveTestSuite;
 
 public abstract class HiveUnitBaseTest {
@@ -50,7 +52,7 @@ public abstract class HiveUnitBaseTest {
 		SLF4JBridgeHandler.install();
 		Logger.getLogger("global").setLevel(Level.FINEST);
 	}
-	
+
 	private static final String DEFAUlT_HIVE_DB = "default";
 	private static final String DEFAULT_DERBY_DB = "jdbc:derby:memory:TestingDB;create=true";
 	private static final String DATA_FILE_PATH = "DATA_FILE_PATH";
@@ -75,7 +77,7 @@ public abstract class HiveUnitBaseTest {
 	}
 
 	@After
-	public void testHCatInputFormat() {
+	public void tearDown() throws Exception {
 		testSuite.shutdownTestCluster();
 	}
 
@@ -99,7 +101,8 @@ public abstract class HiveUnitBaseTest {
 		HCatInputFormat.setInput(conf, DEFAUlT_HIVE_DB, tableName);
 		hcatInputSchema = HCatInputFormat.getTableSchema(conf);
 		conf.setStrings(Schema.JDBC_OUTPUT_COLUMN_TYPES, SchemaUtils
-				.getColumnTypesFromHcatSchema(hcatInputSchema, schema));
+				.getColumnTypesFromHcatSchema(hcatInputSchema, schema,
+						new HashSet<String>(0)));
 
 		// set up hcatalog record reader
 		ReadEntity.Builder builder = new ReadEntity.Builder();
@@ -112,5 +115,15 @@ public abstract class HiveUnitBaseTest {
 		ReaderContext ctx = masterReader.prepareRead();
 
 		hcatRecordReader = DataTransferFactory.getHCatReader(ctx, 0);
+	}
+
+	public void setUpHiveServerNoData(String hiveScript, String tableName)
+			throws Exception {
+
+		// load data into hive table
+		testSuite.executeScript(hiveScript);
+
+		HCatInputFormat.setInput(conf, DEFAUlT_HIVE_DB, tableName);
+		hcatInputSchema = HCatInputFormat.getTableSchema(conf);
 	}
 }

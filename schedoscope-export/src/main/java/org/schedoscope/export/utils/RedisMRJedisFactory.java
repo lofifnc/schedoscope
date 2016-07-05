@@ -26,7 +26,20 @@ import redis.clients.jedis.Jedis;
  */
 public class RedisMRJedisFactory {
 
+	private static volatile Jedis jedisMock = null;
+
 	private static volatile Jedis jedis = null;
+
+	/**
+	 * Set a Jedis mock object for test purposes, that will be delivered by
+	 * getJedisClient
+	 *
+	 * @param mock
+	 *            the Jedis mock to set
+	 */
+	public static void setJedisMock(Jedis mock) {
+		jedisMock = mock;
+	}
 
 	/**
 	 * Returns a configured Redis client.
@@ -36,6 +49,8 @@ public class RedisMRJedisFactory {
 	 * @return The configured Redis client.
 	 */
 	public static Jedis getJedisClient(Configuration conf) {
+		if (jedisMock != null)
+			return jedisMock;
 
 		if (jedis == null) {
 			jedis = new Jedis(conf.get(
@@ -43,6 +58,13 @@ public class RedisMRJedisFactory {
 					conf.getInt(RedisOutputFormat.REDIS_EXPORT_SERVER_PORT,
 							6379), 1800);
 		}
+
+		String password = conf.get(
+				RedisOutputFormat.REDIS_EXPORT_AUTH_PASSWORD, "");
+		if (!password.equals("")) {
+			jedis.auth(password);
+		}
+
 		int redisDb = conf.getInt(RedisOutputFormat.REDIS_EXPORT_SERVER_DB, 0);
 		jedis.select(redisDb);
 		return jedis;

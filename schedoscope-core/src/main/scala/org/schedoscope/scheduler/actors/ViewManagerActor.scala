@@ -19,7 +19,8 @@ import akka.actor.SupervisorStrategy.Escalate
 import akka.actor.{ Actor, ActorRef, OneForOneStrategy, Props, actorRef2Scala }
 import akka.event.{ Logging, LoggingReceive }
 import org.schedoscope.AskPattern._
-import org.schedoscope.{ Schedoscope, SchedoscopeSettings }
+import org.schedoscope.Schedoscope
+import org.schedoscope.conf.SchedoscopeSettings
 import org.schedoscope.dsl.View
 import org.schedoscope.scheduler.messages._
 import scala.collection.mutable.{ HashMap, HashSet }
@@ -69,7 +70,7 @@ class ViewManagerActor(settings: SchedoscopeSettings, actionsManagerActor: Actor
     }
 
     case v: View => {
-      sender ! initializeViewActors(List(v), false).headOption.get
+      sender ! initializeViewActors(List(v), false).head
     }
   })
 
@@ -129,13 +130,13 @@ class ViewManagerActor(settings: SchedoscopeSettings, actionsManagerActor: Actor
       viewsWithMetadataToCreate.foreach(
         _.metadata.foreach {
           case (view, (version, timestamp)) => {
-            
+
             val initialState =
               if ((version != Checksum.defaultDigest) || (timestamp > 0))
                 ReadFromSchemaManager(view, version, timestamp)
               else
                 CreatedByViewManager(view)
-                
+
             val actorRef = actorOf(ViewActor.props(initialState, settings, self, actionsManagerActor, metadataLoggerActor), ViewManagerActor.actorNameForView(view))
             viewStatusMap.put(actorRef.path.toStringWithoutAddress, ViewStatusResponse("receive", view, actorRef))
           }
@@ -173,9 +174,9 @@ class ViewManagerActor(settings: SchedoscopeSettings, actionsManagerActor: Actor
 object ViewManagerActor {
   def props(settings: SchedoscopeSettings, actionsManagerActor: ActorRef, schemaActor: ActorRef, metadataLoggerActor: ActorRef): Props = Props(classOf[ViewManagerActor], settings: SchedoscopeSettings, actionsManagerActor, schemaActor, metadataLoggerActor).withDispatcher("akka.actor.view-manager-dispatcher")
 
-  def actorNameForView(v: View) = v.urlPath.replaceAll("/", ":")
+  def actorNameForView(view: View) = view.urlPath.replaceAll("/", ":")
 
-  def actorForView(v: View) =
-    Schedoscope.actorSystem.actorSelection(Schedoscope.viewManagerActor.path.child(actorNameForView(v)))
+  def actorForView(view: View) =
+    Schedoscope.actorSystem.actorSelection(Schedoscope.viewManagerActor.path.child(actorNameForView(view)))
 
 }

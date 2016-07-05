@@ -9,14 +9,14 @@
 	<parent>
 		<artifactId>schedoscope-suite</artifactId>
 		<groupId>schedoscope</groupId>
-		<version>0.4.0-SNAPSHOT</version>
+		<version>0.6.4-SNAPSHOT</version>
 	</parent>
 
 	<dependencies>
 		<dependency>
 			<groupId>schedoscope</groupId>
 			<artifactId>schedoscope-core</artifactId>
-			<version>0.4.0-SNAPSHOT</version>
+			<version>${schedoscope.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>schedoscope</groupId>
@@ -27,6 +27,11 @@
 			<groupId>ch.hsr</groupId>
 			<artifactId>geohash</artifactId>
 			<version>1.0.13</version>
+		</dependency>
+		<dependency>
+			<groupId>mysql</groupId>
+			<artifactId>mysql-connector-java</artifactId>
+			<version>5.1.38</version>
 		</dependency>
 		<dependency>
 			<groupId>com.klout</groupId>
@@ -77,10 +82,6 @@
 					<artifactId>jackson-mapper-asl</artifactId>
 					<groupId>org.codehaus.jackson</groupId>
 				</exclusion>
-				<exclusion>
-					<groupId> org.cloudera.logredactor</groupId>
-					<artifactId>logredactor</artifactId>
-				</exclusion>
 			</exclusions>
 		</dependency>
 		<dependency>
@@ -98,22 +99,15 @@
 		<dependency>
 			<groupId>minioozie</groupId>
 			<artifactId>minioozie</artifactId>
-			<version>0.1.11</version>
+			<version>${minioozie.version}</version>
 			<scope>test</scope>
-			<exclusions>
-				<exclusion>
-					<artifactId>jersey-server</artifactId>
-					<groupId>com.sun.jersey</groupId>
-				</exclusion>
-				<exclusion>
-					<groupId>org.cloudera.logredactor</groupId>
-					<artifactId>logredactor</artifactId>
-				</exclusion>
-			</exclusions>
 		</dependency>
 	</dependencies>
 
 	<build>
+		<sourceDirectory>src/main/scala</sourceDirectory>
+		<testSourceDirectory>src/test/scala</testSourceDirectory>
+
 		<plugins>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -123,16 +117,6 @@
 					<source>1.7</source>
 					<target>1.7</target>
 				</configuration>
-				<executions>
-					<execution>
-						<id>default-compile</id>
-						<phase>none</phase>
-					</execution>
-					<execution>
-						<id>default-testCompile</id>
-						<phase>none</phase>
-					</execution>
-				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>
@@ -155,13 +139,16 @@
 				</executions>
 			</plugin>
 			<plugin>
-				<artifactId>maven-javadoc-plugin</artifactId>
-				<version>2.10.3</version>
+				<!-- see http://davidb.github.com/scala-maven-plugin -->
+				<groupId>net.alchim31.maven</groupId>
+				<artifactId>scala-maven-plugin</artifactId>
+				<version>3.2.2</version>
 				<executions>
 					<execution>
-						<id>attach-javadocs</id>
 						<goals>
-							<goal>jar</goal>
+							<goal>compile</goal>
+							<goal>testCompile</goal>
+							<goal>doc-jar</goal>
 						</goals>
 					</execution>
 				</executions>
@@ -173,38 +160,6 @@
 				<configuration>
 					<skipTests>true</skipTests>
 				</configuration>
-			</plugin>
-			<plugin>
-
-				<groupId>net.alchim31.maven</groupId>
-				<artifactId>scala-maven-plugin</artifactId>
-				<version>3.2.2</version>
-				<configuration>
-					<recompileMode>incremental</recompileMode>
-					<args>
-						<arg>-target:jvm-1.7</arg>
-					</args>
-					<javacArgs>
-						<javacArg>-source</javacArg>
-						<javacArg>1.7</javacArg>
-						<javacArg>-target</javacArg>
-						<javacArg>1.7</javacArg>
-					</javacArgs>
-				</configuration>
-				<executions>
-					<execution>
-						<id>scala-compile</id>
-						<goals>
-							<goal>compile</goal>
-						</goals>
-					</execution>
-					<execution>
-						<id>scala-test-compile</id>
-						<goals>
-							<goal>testCompile</goal>
-						</goals>
-					</execution>
-				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.scalatest</groupId>
@@ -281,7 +236,10 @@
 										<groupId>ch.hsr</groupId>
 										<artifactId>geohash</artifactId>
 									</inclusion>
-
+									<inclusion>
+										<groupId>org.scala-lang</groupId>
+										<artifactId>scala-library</artifactId>
+									</inclusion>
 								</inclusions>
 							</assembly>
 						</configuration>
@@ -319,4 +277,4 @@
 			</plugin>
 		</plugins>
 	</build>
-</project> 
+</project>

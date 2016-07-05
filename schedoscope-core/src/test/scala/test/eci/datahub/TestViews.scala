@@ -24,6 +24,7 @@ import org.schedoscope.dsl.transformations.OozieTransformation
 import org.schedoscope.dsl.transformations.OozieTransformation.oozieWFPath
 import org.schedoscope.dsl.transformations.HiveTransformation
 import org.schedoscope.dsl.transformations.Touch
+import org.schedoscope.dsl.transformations.Export._
 import org.schedoscope.dsl.transformations.HiveTransformation.insertInto
 import org.schedoscope.dsl.views.DailyParameterization
 import org.schedoscope.dsl.views.Id
@@ -87,7 +88,7 @@ case class ProductBrand(
     HiveTransformation(insertInto(
       this,
       s"""
-         SELECT 
+         SELECT
       				p.${product().id.n} AS ${this.productId.n},
           		b.${brand().name.n} AS ${this.brandName.n},
           		p.${product().occurredAt.n} AS ${this.occurredAt.n}
@@ -223,6 +224,72 @@ case class ClickOfEC0101(
             WHERE ${click().shopCode.n} = '${click().shopCode.v.get}'""")))
 }
 
+case class ClickOfEC0101WithJdbcExport(
+  year: Parameter[String],
+  month: Parameter[String],
+  day: Parameter[String]) extends View
+    with Id
+    with DailyParameterization {
+
+  val url = fieldOf[String]
+
+  val click = dependsOn(() => Click(p("EC0101"), year, month, day))
+
+  transformVia(
+    () => HiveTransformation(
+      insertInto(this, s"""
+            SELECT ${click().id.n}, ${click().url.n}
+            FROM ${click().tableName}
+            WHERE ${click().shopCode.n} = '${click().shopCode.v.get}'""")))
+
+  exportTo(() => Jdbc(this, "jdbc:derby:memory:TestingDB"))
+
+}
+
+case class ClickOfEC0101WithRedisExport(
+  year: Parameter[String],
+  month: Parameter[String],
+  day: Parameter[String]) extends View
+    with Id
+    with DailyParameterization {
+
+  val url = fieldOf[String]
+
+  val click = dependsOn(() => Click(p("EC0101"), year, month, day))
+
+  transformVia(
+    () => HiveTransformation(
+      insertInto(this, s"""
+            SELECT ${click().id.n}, ${click().url.n}
+            FROM ${click().tableName}
+            WHERE ${click().shopCode.n} = '${click().shopCode.v.get}'""")))
+
+  exportTo(() => Redis(this, "localhost", id))
+
+}
+
+case class ClickOfEC0101WithKafkaExport(
+  year: Parameter[String],
+  month: Parameter[String],
+  day: Parameter[String]) extends View
+    with Id
+    with DailyParameterization {
+
+  val url = fieldOf[String]
+
+  val click = dependsOn(() => Click(p("EC0101"), year, month, day))
+
+  transformVia(
+    () => HiveTransformation(
+      insertInto(this, s"""
+            SELECT ${click().id.n}, ${click().url.n}
+            FROM ${click().tableName}
+            WHERE ${click().shopCode.n} = '${click().shopCode.v.get}'""")))
+
+  exportTo(() => Kafka(this, id, "localhost:9092", "localhost:2182"))
+
+}
+
 case class ClickOfEC0101ViaOozie(
   year: Parameter[String],
   month: Parameter[String],
@@ -252,5 +319,16 @@ case class HDFSInputView() extends View with Id {
   val field1 = fieldOf[String]
   tablePathBuilder = s => "/tmp/test"
   storedAs(Parquet())
+}
+
+trait Shop {
+  val shopCode: Parameter[String]
+  require((shopCode.v.get).toUpperCase().equals(shopCode.v.get), "Put in upper case: "+ shopCode.v.get)
+}
+
+case class RequireView(shopCode: Parameter[String])
+  extends View with Shop {
+
+  val field1 = fieldOf[String]
 }
 

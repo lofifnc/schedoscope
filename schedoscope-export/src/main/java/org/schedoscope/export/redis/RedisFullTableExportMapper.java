@@ -17,6 +17,7 @@
 package org.schedoscope.export.redis;
 
 import java.io.IOException;
+import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.io.MapWritable;
@@ -26,10 +27,14 @@ import org.apache.hadoop.mapreduce.Mapper;
 import org.apache.hive.hcatalog.data.HCatRecord;
 import org.apache.hive.hcatalog.data.schema.HCatSchema;
 import org.apache.hive.hcatalog.mapreduce.HCatInputFormat;
+import org.schedoscope.export.BaseExportJob;
 import org.schedoscope.export.redis.outputformat.RedisHashWritable;
 import org.schedoscope.export.redis.outputformat.RedisOutputFormat;
-import org.schedoscope.export.utils.CustomHCatRecordSerializer;
+import org.schedoscope.export.utils.HCatRecordJsonSerializer;
+import org.schedoscope.export.utils.HCatUtils;
 import org.schedoscope.export.utils.StatCounter;
+
+import com.google.common.collect.ImmutableSet;
 
 /**
  * A mapper to read a full Hive table via HCatalog and emits a RedisWritable
@@ -46,7 +51,11 @@ public class RedisFullTableExportMapper extends
 
 	private String keyPrefix;
 
-	private CustomHCatRecordSerializer serializer;
+	private HCatRecordJsonSerializer serializer;
+
+	private Set<String> anonFields;
+
+	private String salt;
 
 	@Override
 	protected void setup(Context context) throws IOException,
@@ -56,13 +65,17 @@ public class RedisFullTableExportMapper extends
 		conf = context.getConfiguration();
 		schema = HCatInputFormat.getTableSchema(conf);
 
-		serializer = new CustomHCatRecordSerializer(conf, schema);
+		serializer = new HCatRecordJsonSerializer(conf, schema);
 
-		RedisOutputFormat.checkKeyType(schema,
+		HCatUtils.checkKeyType(schema,
 				conf.get(RedisOutputFormat.REDIS_EXPORT_KEY_NAME));
 
 		keyName = conf.get(RedisOutputFormat.REDIS_EXPORT_KEY_NAME);
 		keyPrefix = RedisOutputFormat.getExportKeyPrefix(conf);
+
+		anonFields = ImmutableSet.copyOf(conf.getStrings(
+				BaseExportJob.EXPORT_ANON_FIELDS, new String[0]));
+		salt = conf.get(BaseExportJob.EXPORT_ANON_SALT, "");
 	}
 
 	@Override
@@ -81,9 +94,11 @@ public class RedisFullTableExportMapper extends
 				String jsonString;
 
 				if (schema.get(f).isComplex()) {
-					jsonString = serializer.getJsonComplexType(value, f);
+					jsonString = serializer.getFieldAsJson(value, f);
 				} else {
 					jsonString = obj.toString();
+					jsonString = HCatUtils.getHashValueIfInList(f, jsonString,
+							anonFields, salt);
 				}
 				redisValue.put(new Text(f), new Text(jsonString));
 				write = true;
