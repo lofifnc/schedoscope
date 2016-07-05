@@ -34,7 +34,7 @@ case class ShopProfiles() extends View
   val cntRestaurants = fieldOf[Int]("The number of restaurants in the area")
   val cntTrainstations = fieldOf[Int]("The number of trainstations in the area")
 
-  dependsOn { () => Shops() }
+  val test = dependsOn { () => Shops() }
   dependsOn { () => Restaurants() }
   dependsOn { () => Trainstations() }
 

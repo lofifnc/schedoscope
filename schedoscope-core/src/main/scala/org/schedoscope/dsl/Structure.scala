@@ -44,7 +44,7 @@ abstract class Structure extends StructureDsl {
       .map { case (_, _, f) => f }.toSeq
   }
 
-  lazy val fieldLikeGetters =
+  def fieldLikeGetters =
     this.getClass
       .getMethods()
       .filter {

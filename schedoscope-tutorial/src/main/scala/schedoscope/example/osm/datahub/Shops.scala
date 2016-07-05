@@ -32,6 +32,7 @@ case class Shops() extends View
   val shopName = fieldOf[String]("The name of the shop")
   val shopType = fieldOf[String]("The type of shop as given by OSM")
   val area = fieldOf[String]("A geoencoded area string")
+//  val mapF = fieldOf[Map[String,String]]("howhowhow")
 
   dependsOn { () =>
     for ((year, month) <- allMonths())
