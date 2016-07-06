@@ -1,26 +1,31 @@
 package org.schedoscope.dsl.flink
 
+import java.util.Date
+
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.scala.typeutils.CaseClassTypeInfo
 import org.apache.flink.configuration
 import org.apache.flink.hcatalog.HCatInputFormatBase
 import org.apache.hadoop.conf.Configuration
 import org.apache.hive.hcatalog.data.HCatRecord
-import org.schedoscope.dsl.View
-import org.schedoscope.dsl.Field
-import org.schedoscope.test.ViewSerDe
+import org.apache.hive.hcatalog.data.schema.HCatSchema
+import org.json4s.DefaultFormats
+import org.json4s.jackson.JsonMethods._
+import org.schedoscope.dsl.{Structure, View}
 
 class ViewInputFormat(val fields: Seq[SimpleField[_]],
                       database: String,
-                                    table: String,
-                                    config: Configuration
-                                   ) extends HCatInputFormatBase[DynamicView](database, table, config) {
+                      table: String,
+                      config: Configuration
+                     ) extends HCatInputFormatBase[DynamicView](database, table, config) {
+
+  import ViewInputFormat._
 
   var vals: Array[Any] = Array[Any]()
 
   override def configure(parameters: configuration.Configuration): Unit = {
-//    super.configure(parameters)
-//    vals = new Array[Any](fieldNames.length)
+    //    super.configure(parameters)
+    //    vals = new Array[Any](fieldNames.length)
   }
 
 
@@ -30,111 +35,13 @@ class ViewInputFormat(val fields: Seq[SimpleField[_]],
 
     println(this.fieldNames.mkString(", "))
 
-    this.fieldNames.foreach{ name =>
-      val o: AnyRef = record.get(this.fieldNames(i), this.outputSchema)
-
-        val field = fields.find(f => f.n == name).get
-        val value = ViewSerDe.deserializeField(field.t, o.asInstanceOf[String])
-        println(value)
-        view.put(field,value)
+    this.fieldNames.foreach { name =>
+      val field = fields.find(f => f.n == name).get
+      outputSchema.get(i).getTypeString
+      val value = deserializeField(name, field.t, record, this.outputSchema)
+      view.put(field, value)
+      i += 1
     }
-//
-//
-//    while (i < this.fieldNames.length) {
-//
-//      val o: AnyRef = record.get(this.fieldNames(i), this.outputSchema)
-//
-//      // partition columns are returned as String
-//      //   Check and convert to actual type.
-//      this.outputSchema.get(i).getType match {
-//        case HCatFieldSchema.Type.INT =>
-//          if (o.isInstanceOf[String]) {
-//            vals(i) = o.asInstanceOf[String].toInt
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Int]
-//          }
-//        case HCatFieldSchema.Type.TINYINT =>
-//          if (o.isInstanceOf[String]) {
-//            vals(i) = o.asInstanceOf[String].toInt.toByte
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Byte]
-//          }
-//        case HCatFieldSchema.Type.SMALLINT =>
-//          if (o.isInstanceOf[String]) {
-//            vals(i) = o.asInstanceOf[String].toInt.toShort
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Short]
-//          }
-//        case HCatFieldSchema.Type.BIGINT =>
-//          if (o.isInstanceOf[String]) {
-//            vals(i) = o.asInstanceOf[String].toLong
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Long]
-//          }
-//        case HCatFieldSchema.Type.BOOLEAN =>
-//          if (o.isInstanceOf[String]) {
-//            vals(i) = o.asInstanceOf[String].toBoolean
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Boolean]
-//          }
-//        case HCatFieldSchema.Type.FLOAT =>
-//          if (o.isInstanceOf[String]) {
-//            vals(i) = o.asInstanceOf[String].toFloat
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Float]
-//          }
-//        case HCatFieldSchema.Type.DOUBLE =>
-//          if (o.isInstanceOf[String]) {
-//            vals(i) = o.asInstanceOf[String].toDouble
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Double]
-//          }
-//        case HCatFieldSchema.Type.STRING =>
-//          vals(i) = o
-//        case HCatFieldSchema.Type.BINARY =>
-//          if (o.isInstanceOf[String]) {
-//            throw new RuntimeException("Cannot handle partition keys of type BINARY.")
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Array[Byte]]
-//          }
-//        case HCatFieldSchema.Type.ARRAY =>
-//          if (o.isInstanceOf[String]) {
-//            throw new RuntimeException("Cannot handle partition keys of type ARRAY.")
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[List[Object]]
-//          }
-//        case HCatFieldSchema.Type.MAP =>
-//          if (o.isInstanceOf[String]) {
-//            throw new RuntimeException("Cannot handle partition keys of type MAP.")
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[Map[Object, Object]]
-//          }
-//        case HCatFieldSchema.Type.STRUCT =>
-//          if (o.isInstanceOf[String]) {
-//            throw new RuntimeException("Cannot handle partition keys of type STRUCT.")
-//          }
-//          else {
-//            vals(i) = o.asInstanceOf[List[Object]]
-//          }
-//        case _ =>
-//          throw new RuntimeException("Invalid type " + this.outputSchema.get(i).getType +
-//            " encountered.")
-//      }
-//
-//      i += 1
-//    }
-
-//    view.set(fields(0),"test")
 
     view
   }
@@ -144,15 +51,55 @@ class ViewInputFormat(val fields: Seq[SimpleField[_]],
 
 }
 
-
 object ViewInputFormat {
+
+  def deserializeField[T](name: String, t: Manifest[T],
+                          record: HCatRecord,
+                          schema: HCatSchema): Any = {
+    //    if (v == null || "null".equals(v)) {
+    //      return v
+    //    }
+    if (t == manifest[Int])
+      record.getInteger(name, schema)
+    else if (t == manifest[Long])
+      record.getLong(name, schema)
+    else if (t == manifest[Byte])
+      record.getByte(name, schema)
+    else if (t == manifest[Boolean])
+      record.getBoolean(name, schema)
+    else if (t == manifest[Double])
+      record.getBoolean(name, schema)
+    else if (t == manifest[Float])
+      v.asInstanceOf[String].toFloat
+    else if (t == manifest[String])
+      v.asInstanceOf[String]
+    else if (t == manifest[Date])
+      v.asInstanceOf[String] // TODO: parse date?
+    else if (classOf[Structure].isAssignableFrom(t.runtimeClass)) {
+      // Structures are given like [FieldValue1,FieldValue2,...]
+      // Maps are given las json
+      implicit val format = DefaultFormats
+      val parsed = parse(v.toString())
+      parsed.extract[Map[String, _]]
+    } else if (t.runtimeClass == classOf[List[_]]) {
+      // Lists are given like [el1, el2, ...]
+      implicit val format = DefaultFormats
+      val parsed = parse(v.toString())
+      parsed.extract[List[_]]
+    } else if (t.runtimeClass == classOf[Map[_, _]]) {
+      // Maps are given las json
+      implicit val format = DefaultFormats
+      val parsed = parse(v.toString())
+      parsed.extract[Map[String, _]]
+    } else throw new RuntimeException("Could not deserialize field of type " + t + " with value " + v)
+  }
 
   def apply(view: View): ViewInputFormat = {
     val config = new Configuration()
 
-//    val gen = TupleGeneric[T]
+    //    val gen = TupleGeneric[T]
 
-//    val product = gen.to(view.asInstanceOf[T])
+    //    val product = gen.to(view.asInstanceOf[T])
 
     println(view.tableName)
     val dbName = view.tableName
@@ -160,7 +107,7 @@ object ViewInputFormat {
     val databaseName = dbName.split("\\.")(0)
 
     new ViewInputFormat(
-      view.fields.map{ f => SimpleField(f.n,f.t) },
+      view.fields.map { f => SimpleField(f.n, f.t) },
       "test_schedoscope_example_osm_datahub",
       tableName,
       config)
@@ -186,3 +133,4 @@ object ViewInputFormat {
     }
   }
 }
+

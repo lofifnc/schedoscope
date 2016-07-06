@@ -15,22 +15,15 @@
   */
 package schedoscope.example.osm.datamart
 
-import org.scalatest.{ FlatSpec, Matchers }
-import java.sql.{ DriverManager, ResultSet, Statement }
+import java.sql.DriverManager
+
+import org.apache.flink.api.scala.{ExecutionEnvironment, _}
+import org.scalatest.{FlatSpec, Matchers}
 import org.schedoscope.dsl.Field._
-import org.schedoscope.dsl.flink.{SimpleField, DynamicView, ViewInputFormat}
-import shapeless._
-import syntax.singleton._
-import record._
-
-import scala.collection.mutable
-import scala.collection.mutable.{ListBuffer, HashMap}
-
-//import org.schedoscope.dsl.flink.ViewInputFormat
+import org.schedoscope.dsl.flink.DynamicView
 import org.schedoscope.test.{rows, test}
 import schedoscope.example.osm.datahub.{Restaurants, Shops, Trainstations}
-import org.apache.flink.api.scala._
-import scala.language.dynamics
+
 
 case class ShopProfilesTest() extends FlatSpec
   with Matchers {
@@ -42,15 +35,19 @@ case class ShopProfilesTest() extends FlatSpec
     set(v(id, "122546"),
       v(shopName, "Netto"),
       v(shopType, "supermarket"),
-      v(area, "t1y87ki"))
+      v(area, "t1y87ki"),
+      v(size, 10),
+      v(mapF, Map("test" -> "hey")))
     set(v(id, "274850441"),
       v(shopName, "Schanzenbaeckerei"),
       v(shopType, "bakery"),
-      v(area, "t1y87ki"))
+      v(area, "t1y87ki"),
+      v(size, 12))
     set(v(id, "279023080"),
       v(shopName, "Edeka Linow"),
       v(shopType, "supermarket"),
-      v(area, "t1y77d8"))
+      v(area, "t1y77d8"),
+      v(size,13))
   }
 
   val restaurants = new Restaurants() with rows {
@@ -69,76 +66,12 @@ case class ShopProfilesTest() extends FlatSpec
   }
 
   val trainstations = new Trainstations() with rows {
-    set(v(id, "test"),
+    set(v(id, "122317"),
       v(stationName, "Hagenbecks Tierpark"),
       v(area, "t1y140d"))
     set(v(id, "122317"),
       v(stationName, "Boenningstedt"),
       v(area, "t1y87ki"))
-  }
-
-  "flink test" should "do something" in {
-//   with test {
-//      basedOn(shopis)
-//      then()
-//    }
-//    view.run()
-  }
-
-  "flink test" should "show something with" in {
-    new ShopProfiles() {
-
-      //
-      val flinkEnv = ExecutionEnvironment.getExecutionEnvironment
-
-      val string = "hallo"
-
-      //      val input = ViewInputFormat(ShopProfiles())
-
-      val shop = DynamicView(test())
-      shop.set(area, "boston")
-      shop.set(id, "test")
-      val shop1 = DynamicView(test())
-      shop1.set(area, "san franciso")
-      val shop2 = DynamicView(test())
-      shop2.set(area, "new york")
-
-      val stream = flinkEnv.fromCollection(List(shop, shop1, shop2))
-
-      val shops = stream.map {
-        view => {
-          println(string)
-          view.set(area,"test")
-          view
-        }
-      }
-
-      shops.print()
-    }
-
-  }
-
-  "flink test" should "closure" in {
-
-      val flinkEnv = ExecutionEnvironment.getExecutionEnvironment
-
-      val string = "hallo"
-
-      //      val input = ViewInputFormat(ShopProfiles())
-
-      val stream = flinkEnv.fromCollection(List(1, 2, 3))
-
-      val shops = stream.map {
-        view => {
-          println(string)
-          //          view.set(area,"test")
-          view
-        }
-      }
-
-      shops.print()
-
-
   }
 
   "datamart.ShopProfiles" should "load correctly from datahub.shops, datahub.restaurants, datahub.trainstations" in {
@@ -158,10 +91,6 @@ case class ShopProfilesTest() extends FlatSpec
         v(cntRestaurants) shouldBe 1,
         v(cntTrainstations) shouldBe 1)
     }
-
-    val view = new TestView()
-    view.run()()
-
   }
 
   it should "export data to JDBC as well" in {
@@ -186,4 +115,73 @@ case class ShopProfilesTest() extends FlatSpec
     resultSet.close()
     statement.close()
   }
+
+  it should "flinky flink" in {
+    new TestView() with test {
+      basedOn(shops)
+      then()
+    }
+
+  }
+
+  "flink test" should "show something with" in {
+    new ShopProfiles() {
+
+      //
+      val flinkEnv = ExecutionEnvironment.getExecutionEnvironment
+
+      val string = "hallo"
+
+      //            val input = ViewInputFormat(ShopProfiles())
+
+
+      val shop = DynamicView(test())
+      shop.set(area, "boston")
+      shop.set(id, "test")
+      val shop1 = DynamicView(test())
+      shop1.set(area, "san franciso")
+      val shop2 = DynamicView(test())
+      shop2.set(area, "new york")
+
+      val stream = flinkEnv.fromCollection(List(shop, shop1, shop2))
+
+      val shops = stream.map {
+        view => {
+          @transient val v = new Shops()
+          view.set(v.shopName, "test")
+          //          println(string)
+          //          view.set(area,"test")
+          view
+        }
+      }
+
+      shops.print()
+    }
+
+  }
+
+  "flink test" should "closure" in {
+
+    val flinkEnv = ExecutionEnvironment.getExecutionEnvironment
+
+    val string = "hallo"
+
+    //      val input = ViewInputFormat(ShopProfiles())
+
+    val stream = flinkEnv.fromCollection(List(1, 2, 3))
+
+    val shops = stream.map {
+      view => {
+        println(string)
+        //          view.set(area,"test")
+        view
+      }
+    }
+
+    shops.print()
+
+
+  }
+
 }
+

@@ -16,6 +16,7 @@
 package org.schedoscope.test
 
 import org.apache.hadoop.fs.Path
+import org.schedoscope.dsl.flink.FlinkTransformation
 import org.schedoscope.dsl.transformations.{FilesystemTransformation, HiveTransformation, MapreduceTransformation, OozieTransformation, PigTransformation, SeqTransformation, Transformation}
 import org.schedoscope.dsl.{FieldLike, Structure, View}
 import org.schedoscope.scheduler.driver.Driver
@@ -38,6 +39,7 @@ trait test extends TestableView {
 
   var driver: () => Driver[Transformation] =
     () => this.transformation() match {
+      case t : FlinkTransformation => resources().flinkDriver.asInstanceOf[Driver[Transformation]]
       case t: SeqTransformation[_, _] => resources().seqDriver.asInstanceOf[Driver[Transformation]]
       case t: HiveTransformation => resources().hiveDriver.asInstanceOf[Driver[Transformation]]
       case t: OozieTransformation => resources().oozieDriver.asInstanceOf[Driver[Transformation]]
@@ -79,8 +81,6 @@ trait test extends TestableView {
     if(!disableTransformationValidation) {
       t.validateTransformation()
     }
-
-
 
     deploySchema()
 

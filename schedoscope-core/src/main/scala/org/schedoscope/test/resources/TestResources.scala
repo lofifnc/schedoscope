@@ -19,11 +19,13 @@ import java.sql.{ Connection, DriverManager }
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Collections
 
+import org.apache.flink.api.scala.ExecutionEnvironment
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileSystem
 import org.apache.hadoop.hive.conf.HiveConf
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient
 import org.apache.hadoop.security.UserGroupInformation
+import org.schedoscope.dsl.flink.FlinkDriver
 import org.schedoscope.dsl.storageformats.TextFile
 import org.schedoscope.dsl.transformations.Transformation
 import org.schedoscope.scheduler.driver.{ Driver, DriverRunCompletionHandler, DriverRunHandle, DriverRunState, FileSystemDriver, HiveDriver, MapreduceDriver, OozieDriver, PigDriver, ShellDriver, SeqDriver }
@@ -110,6 +112,8 @@ abstract class TestResources {
 
     case "hive"       => new HiveDriver(List("org.schedoscope.test.resources.TestDriverRunCompletionHandler"), hiveConf)
 
+    case "flink"      => new FlinkDriver(List("org.schedoscope.text.resources.TestDriverRunCompletionHandler"), ExecutionEnvironment.getExecutionEnvironment)
+
     case "seq"        => new SeqDriver(List("org.schedoscope.test.resources.TestDriverRunCompletionHandler"), driverFor)
 
   }).asInstanceOf[Driver[Transformation]]
@@ -127,6 +131,8 @@ abstract class TestResources {
   lazy val shellDriver: ShellDriver = driverFor("shell").asInstanceOf[ShellDriver]
 
   lazy val seqDriver: SeqDriver = driverFor("seq").asInstanceOf[SeqDriver]
+
+  lazy val flinkDriver: FlinkDriver = driverFor("flink").asInstanceOf[FlinkDriver]
 
   lazy val textStorage = new TextFile(fieldTerminator = "\\t", collectionItemTerminator = "\u0002", mapKeyTerminator = "\u0003")
 }
