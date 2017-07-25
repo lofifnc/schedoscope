@@ -106,6 +106,10 @@ object SchedoscopeRestService {
   def start(config: Config) {
     IO(Http) ? Http.Bind(service, interface = settings.host, port = settings.port)
 
+    sys.addShutdownHook{
+      println("--- schedoscope has been terminated")
+    }
+
     if (config.shell) {
       Thread.sleep(5000)
       println("\n\n============= schedoscope initialization finished ============== \n\n")
